@@ -2,11 +2,9 @@ import tensorflow as tf
 import numpy as np
 import streamlit as st
 import os
-from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 @st.cache_resource
 def carregar_vae():
@@ -27,15 +25,4 @@ def registrar_analise(mse, classificacao, confianca):
         "Erro MSE": round(mse, 6),
         "Resultado": classificacao,
         "Confiança (%)": confianca
-    })
-
-def gerar_laudo_ia(resultado, mse):
-    prompt = f"Paciente com resultado {resultado} e erro de reconstrução {mse}. Gere um laudo médico curto e formal."
-    try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return response.choices[0].message.content
-    except:
-        return "Laudo indisponível no momento."
+  })

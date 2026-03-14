@@ -6,4 +6,3 @@ pillow
 streamlit
 scikit-image
 python-dotenv
-openai
