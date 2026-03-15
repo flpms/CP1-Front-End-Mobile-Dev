@@ -1,4 +1,7 @@
 .env
 .venv/
 __pycache__/
-*.h5
+*.pyc
+
+# Não ignorar os pesos do modelo — necessários para o deploy
+# *.h5
