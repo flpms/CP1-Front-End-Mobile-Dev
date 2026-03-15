@@ -1,26 +1,3 @@
-# ==============================================
-# DEPENDÊNCIAS — instale com pip antes de executar:
-#
-#   pip install streamlit          # framework de interface web interativa
-#   pip install tensorflow         # framework de deep learning (inclui Keras)
-#   pip install numpy              # operações numéricas e arrays N-dimensionais
-#   pip install pandas             # manipulação de dados tabulares (DataFrames)
-#   pip install plotly             # gráficos interativos (px.bar, px.scatter, etc.)
-#   pip install altair             # gramática declarativa de visualização
-#   pip install Pillow             # manipulação de imagens (PIL.Image)
-#
-# Comando único para instalar tudo de uma vez:
-#   pip install streamlit tensorflow numpy pandas plotly altair Pillow
-#
-# Versões mínimas recomendadas:
-#   Python        >= 3.9
-#   TensorFlow    >= 2.10
-#   Streamlit     >= 1.30
-#
-# Para executar a aplicação:
-#   streamlit run app.py
-# ==============================================
-
 # --- Biblioteca padrão do Python ---
 import os       # manipulação de caminhos e variáveis de ambiente
 import json     # leitura/escrita de arquivos JSON (configuração do modelo)
@@ -45,35 +22,13 @@ import altair as alt         # gráficos declarativos com gramática Vega-Lite
 from PIL import Image        # leitura e conversão de imagens (Pillow)
 
 
-# ==============================================
-# App Streamlit para VAE PneumoniaMNIST
-# ==============================================
-# Funcionalidades:
-# - Triagem de pneumonia baseada no erro de reconstrução
-# - Geração de novas imagens de raio-X
-# - Upload e reconstrução de imagens
-# ==============================================
 
-# -----------------------------------------------
-# CAMINHOS DOS ARQUIVOS DO MODELO
-# BASE_DIR  → diretório onde este script está localizado
-# MODELS_DIR → subpasta 'models/' com pesos e config
-# WEIGHTS_PATH → arquivo HDF5 com pesos treinados do VAE
-# CONFIG_PATH  → JSON com hiperparâmetros (ex.: latent_dim)
-# -----------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(BASE_DIR, 'models')
 WEIGHTS_PATH = os.path.join(MODELS_DIR, 'vae_pneumonia.weights.h5')
 CONFIG_PATH = os.path.join(MODELS_DIR, 'config.json')
 
 
-# -----------------------------------------------
-# CAMADA CUSTOMIZADA: Reparametrização do VAE
-# -----------------------------------------------
-# Em um VAE, o espaço latente é parametrizado por (z_mean, z_log_var).
-# Para amostrar z de forma diferenciável (backprop), usamos o
-# "reparametrization trick": z = z_mean + exp(0.5 * z_log_var) * ε
-# onde ε ~ N(0, I). Isso permite que os gradientes fluam através da amostragem.
 class Sampling(tf.keras.layers.Layer):
     def call(self, inputs, **kwargs):
         # Desempacota média e log-variância do espaço latente
@@ -84,18 +39,6 @@ class Sampling(tf.keras.layers.Layer):
         return z_mean + tf.exp(0.5 * z_log_var) * epsilon
 
 
-# -----------------------------------------------
-# ENCODER: comprime a imagem (28×28×1) para o espaço latente
-# -----------------------------------------------
-# Arquitetura:
-#   Input(28,28,1)
-#     → Conv2D(32, 3×3, stride=2) → (14,14,32)   ← extrai features de baixo nível
-#     → Conv2D(64, 3×3, stride=2) → (7,7,64)     ← features de alto nível + redução espacial
-#     → Flatten → (3136,)
-#     → Dense(128)                                ← representação compacta
-#     → z_mean   (latent_dim,)                    ← média do espaço latente
-#     → z_log_var(latent_dim,)                    ← log-variância do espaço latente
-#     → Sampling → z (latent_dim,)                ← amostra via reparametrização
 def build_encoder(latent_dim: int) -> tf.keras.Model:
     inputs = tf.keras.Input(shape=(28, 28, 1))  # imagem grayscale 28×28
     # Primeira convolução: reduz resolução espacial pela metade (stride=2)
@@ -115,15 +58,6 @@ def build_encoder(latent_dim: int) -> tf.keras.Model:
     return tf.keras.Model(inputs, [z_mean, z_log_var, z], name='encoder')
 
 
-# -----------------------------------------------
-# DECODER: reconstrói a imagem a partir do vetor latente z
-# -----------------------------------------------
-# Arquitetura (espelho do encoder, usando Conv2DTranspose = "deconvolução"):
-#   Input(latent_dim,)
-#     → Dense(7×7×64) → Reshape(7,7,64)      ← expande para mapa de features
-#     → Conv2DTranspose(64, stride=2) → (14,14,64)   ← aumenta resolução
-#     → Conv2DTranspose(32, stride=2) → (28,28,32)   ← restaura tamanho original
-#     → Conv2DTranspose(1, sigmoid)  → (28,28,1)     ← imagem reconstruída [0,1]
 def build_decoder(latent_dim: int) -> tf.keras.Model:
     latent_inputs = tf.keras.Input(shape=(latent_dim,))  # vetor latente z
     # Projeta z para mapa de features compatível com as convoluções transpostas
@@ -139,14 +73,6 @@ def build_decoder(latent_dim: int) -> tf.keras.Model:
     return tf.keras.Model(latent_inputs, outputs, name='decoder')
 
 
-# -----------------------------------------------
-# MODELO VAE: une encoder + decoder em um único modelo Keras
-# -----------------------------------------------
-# O VAE recebe imagens, codifica no espaço latente e reconstrói.
-# A loss combina:
-#   - Reconstruction loss: quão bem a imagem foi reconstruída (MSE ou BCE)
-#   - KL divergence: quão próxima da distribuição N(0,I) é a distribuição latente
-#   (o treinamento com essas losses é feito em train_vae.py, não neste arquivo)
 class VAE(tf.keras.Model):
     def __init__(self, encoder: tf.keras.Model, decoder: tf.keras.Model, **kwargs):
         super().__init__(**kwargs)
@@ -168,12 +94,6 @@ class VAE(tf.keras.Model):
         return self.decoder(z, training=training)
 
 
-# -----------------------------------------------
-# CARREGAMENTO DO MODELO (com cache do Streamlit)
-# -----------------------------------------------
-# @st.cache_resource: executa apenas UMA vez por sessão do servidor.
-# Ideal para objetos pesados como modelos de ML — evita recarregar a cada
-# interação do usuário. O cache persiste enquanto o servidor Streamlit estiver ativo.
 @st.cache_resource
 def load_model():
     # Verifica se os arquivos necessários existem antes de tentar carregar
@@ -197,14 +117,6 @@ def load_model():
     return vae, None  # retorna (modelo, None) quando bem-sucedido
 
 
-# -----------------------------------------------
-# PRÉ-PROCESSAMENTO DA IMAGEM ENVIADA PELO USUÁRIO
-# -----------------------------------------------
-# Normaliza qualquer imagem recebida para o formato esperado pelo VAE:
-#   - Grayscale (1 canal)
-#   - 28×28 pixels (resolução do PneumoniaMNIST)
-#   - Valores float32 em [0.0, 1.0]
-#   - Shape (1, 28, 28, 1) com batch dimension para inferência
 def preprocess_image(image: Image.Image) -> np.ndarray:
     # Converter para grayscale e 28x28
     if image.mode != 'L':
@@ -219,29 +131,12 @@ def preprocess_image(image: Image.Image) -> np.ndarray:
     return arr
 
 
-# -----------------------------------------------
-# CÁLCULO DO ERRO DE RECONSTRUÇÃO (MSE)
-# -----------------------------------------------
-# @st.cache_data: cacheia resultados de funções puras baseadas nos argumentos.
-# Diferente de cache_resource, é usado para dados serializáveis (arrays, DataFrames).
-# O MSE (Mean Squared Error) mede pixel a pixel a diferença entre original e reconstrução.
-# Em VAEs para detecção de anomalias: MSE alto → imagem anômala (fora da distribuição aprendida).
 @st.cache_data
 def compute_reconstruction_error(x: np.ndarray, x_recon: np.ndarray) -> float:
     # Erro MSE por imagem
     return float(np.mean((x - x_recon) ** 2))  # média sobre todos os pixels
 
 
-# -----------------------------------------------
-# CLASSIFICAÇÃO POR THRESHOLD DE MSE
-# -----------------------------------------------
-# Lógica de triagem baseada em limiar duplo:
-#   MSE < threshold_normal          → NORMAL (baixo risco)
-#   threshold_normal ≤ MSE < threshold_borderline → BORDERLINE (risco moderado)
-#   MSE ≥ threshold_borderline      → POSSÍVEL PNEUMONIA (alto risco)
-#
-# Os thresholds são configurados pelo usuário na barra lateral e devem ser
-# calibrados com base nos dados de validação do modelo treinado.
 @st.cache_data
 def classify_pneumonia(reconstruction_error: float, threshold_normal: float, threshold_borderline: float) -> tuple:
     """
@@ -256,12 +151,7 @@ def classify_pneumonia(reconstruction_error: float, threshold_normal: float, thr
         return "POSSÍVEL PNEUMONIA", "Alto risco - urgente avaliação médica", "red"
 
 
-# -----------------------------------------------
-# GERAÇÃO DE NOVAS IMAGENS SINTÉTICAS
-# -----------------------------------------------
-# Amostra vetores z do prior N(0,I) e os passa pelo decoder.
-# Isso é possível porque o VAE aprendeu um espaço latente estruturado:
-# regiões próximas do centro (0,0,...) geram imagens plausíveis.
+@st.cache_data
 def generate_new_images(vae: VAE, num_images: int = 4) -> np.ndarray:
     """Gera novas imagens de raio-X usando o VAE treinado."""
     latent_dim = vae.encoder.output_shape[0][-1]  # Pega a dimensão do z_mean
@@ -277,19 +167,8 @@ def generate_new_images(vae: VAE, num_images: int = 4) -> np.ndarray:
     return generated_images  # shape: (num_images, 28, 28, 1)
 
 
-# -----------------------------------------------
 # CONFIGURAÇÃO DA PÁGINA STREAMLIT
-# -----------------------------------------------
-# Deve ser a PRIMEIRA chamada st.* do script (antes de qualquer outro widget).
-# layout='wide' aproveita toda a largura do navegador.
 st.set_page_config(page_title='VAE PneumoniaMNIST - Triagem e Geração', layout='wide')
-
-
-# ==========================================================
-# INICIALIZAÇÃO DE ESTADO
-# ==========================================================
-# st.session_state persiste valores entre reruns causados por interações do usuário.
-# Cada chave é inicializada apenas uma vez (padrão "if not in").
 
 # Lista de dicionários com o histórico de todas as análises realizadas
 if "history" not in st.session_state:
@@ -318,12 +197,10 @@ if "num_generated" not in st.session_state:
 # DataFrame tabular para a aba de histórico — inicializado com colunas vazias
 if "history_df" not in st.session_state:
     st.session_state.history_df = pd.DataFrame(
-        columns=["Execução", "Classificação", "Erro MSE", "Confiança (%)"]
+        columns=["Execução", "Classificação", "Erro MSE", "Confiança (%)", "Data/Hora"]
     )
 
-# ==========================================================
 # CALLBACK — RESET AO ALTERAR CONFIGURAÇÃO
-# ==========================================================
 # Chamado automaticamente pelos sliders de threshold via on_change=reset_analysis.
 # Garante que ao alterar thresholds o resultado não fique desatualizado na tela.
 def reset_analysis():
@@ -331,10 +208,7 @@ def reset_analysis():
     st.session_state.last_result = None     # descarta resultado cacheado
     st.toast("Configuração alterada. Execute novamente.")
 
-
-# ==========================================================
 # SIDEBAR — configurações e status do modelo
-# ==========================================================
 st.sidebar.header("Modelo VAE")
 
 # Carrega o modelo uma única vez (cacheado); exibe status na sidebar
@@ -392,10 +266,7 @@ st.sidebar.info(
     "Sempre consulte um médico para diagnóstico definitivo."
 )
 
-
-# ==========================================================
 # TÍTULO & EMPTY STATE
-# ==========================================================
 st.title("VAE PneumoniaMNIST — Triagem de Pneumonia e Geração de Imagens")
 
 # Widget de upload: aceita PNG e JPG; retorna objeto UploadedFile ou None
@@ -410,52 +281,49 @@ if not uploaded:
     st.stop()  # interrompe o restante do script — nada abaixo será renderizado
 
 
-# ==========================================================
 # BOTÃO COMO GATILHO (AÇÃO, NÃO ESTADO)
-# ==========================================================
-# Padrão recomendado no Streamlit: o botão define o estado, não executa lógica.
-# A lógica fica no bloco "if st.session_state.analysis_ran" abaixo,
 # garantindo que o resultado permaneça visível mesmo após reruns por outros widgets.
 if st.button("🔍 Executar Triagem"):
     st.session_state.analysis_ran = True
     # Chave única por arquivo: nome + tamanho detecta troca de imagem sem hash completo
     st.session_state.run_file_key = uploaded.name + str(uploaded.size)
 
-
-# ==========================================================
 # EXECUÇÃO CONTROLADA PELO ESTADO
-# ==========================================================
 # Só executa e renderiza resultados se o botão foi clicado nesta sessão.
 if st.session_state.analysis_ran:
 
     # Identifica unicamente o arquivo em análise (nome + tamanho)
     file_key = st.session_state.get("run_file_key", "")
 
-    # --------------------------------------------------------
     # LOADING STATE / LATÊNCIA — só simulação da primeira execução do arquivo
-    # --------------------------------------------------------
     # Compara o file_key atual com o da última execução concluída.
     # Animações só aparecem quando é um arquivo novo (evita re-spinner a cada rerun).
     if st.session_state.get("last_file_key") != file_key:
         if st.session_state.simulate_latency:
-            # st.spinner: exibe mensagem de loading enquanto o bloco with executa
-            with st.spinner("Pré-processando imagem..."):
+            with st.status("🔍 Executando Triagem de Pneumonia", expanded=True) as status:
+                st.write("📤 Pré-processando imagem...")
                 time.sleep(0.5)
-            with st.spinner("Codificando no espaço latente..."):
+                status.update(label="Pré-processamento concluído")
+                
+                st.write("🧠 Codificando no espaço latente...")
                 time.sleep(0.5)
-            with st.spinner("Reconstruindo imagem..."):
-                # st.progress: barra de progresso de 0 a 100 para feedback visual
+                status.update(label="Codificação concluída")
+                
+                st.write("🔄 Reconstruindo imagem...")
                 bar = st.progress(0)
                 for i in range(100):
                     time.sleep(0.01)  # simula processamento gradual
                     bar.progress(i + 1)
+                status.update(label="Reconstrução concluída")
+                
+                st.write("📊 Calculando métricas...")
+                time.sleep(0.2)
+                status.update(label="Análise concluída com sucesso!", state="complete")
             st.toast("Análise concluída.")  # notificação não-bloqueante no canto
         # Marca este arquivo como já processado (evita re-animação)
         st.session_state.last_file_key = file_key
 
-    # --------------------------------------------------------
     # PROCESSAMENTO PRINCIPAL
-    # --------------------------------------------------------
     # Lê o arquivo enviado como bytes e abre com Pillow
     image = Image.open(io.BytesIO(uploaded.read()))
     # Normaliza para o formato esperado pelo VAE: (1, 28, 28, 1) float32 [0,1]
@@ -491,6 +359,7 @@ if st.session_state.analysis_ran:
             "Classificação":  classification,
             "Erro MSE":       round(mse, 6),
             "Confiança (%)":  confidence_percent,
+            "Data/Hora":      pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
         }])
         # pd.concat: concatena linha nova ao DataFrame existente (substitui .append deprecated)
         st.session_state.history_df = pd.concat(
@@ -503,20 +372,16 @@ if st.session_state.analysis_ran:
             "confidence": confidence_percent,
         })
 
-    # ==========================================================
     # TABS DE RESULTADOS
-    # ==========================================================
-    # st.tabs: organiza o conteúdo em abas clicáveis sem recarregar a página
-    tab_triagem, tab_dados, tab_monitor, tab_sobre = st.tabs([
+    tab_triagem, tab_geracao, tab_dados, tab_monitor, tab_sobre = st.tabs([
         "🔍 Triagem & Validação Humana",
+        "🎨 Geração de Imagens",
         "📊 Dados & Histórico",
         "📈 Monitoramento",
         "ℹ️ Sobre o Modelo",
     ])
 
-    # ==========================================================
     # TAB 1 — TRIAGEM & VALIDAÇÃO HUMANA
-    # ==========================================================
     with tab_triagem:
         # Layout de duas colunas: imagem original vs. reconstruída
         col1, col2 = st.columns(2)
@@ -546,6 +411,20 @@ if st.session_state.analysis_ran:
         # Barra de progresso como indicador visual de confiança (0-100)
         st.progress(confidence_percent)
 
+        # Classificação de confiança textual
+        if confidence_percent >= 80:
+            confidence_level = "Alta"
+            confidence_color = "green"
+        elif confidence_percent >= 60:
+            confidence_level = "Média-Alta"
+            confidence_color = "blue"
+        elif confidence_percent >= 40:
+            confidence_level = "Média"
+            confidence_color = "orange"
+        else:
+            confidence_level = "Baixa"
+            confidence_color = "red"
+
         # Alerta contextual com cor semântica (success=verde, warning=amarelo, error=vermelho)
         if color == "green":
             st.success(f"✅ {classification} — {description}")
@@ -553,6 +432,16 @@ if st.session_state.analysis_ran:
             st.warning(f"⚠️ {classification} — {description}")
         else:
             st.error(f"🚨 {classification} — {description}")
+
+        # Display de confiança com cores semânticas
+        if confidence_color == "green":
+            st.success(f"🎯 Confiança: {confidence_level} ({confidence_percent}%)")
+        elif confidence_color == "blue":
+            st.info(f"🎯 Confiança: {confidence_level} ({confidence_percent}%)")
+        elif confidence_color == "orange":
+            st.warning(f"🎯 Confiança: {confidence_level} ({confidence_percent}%) - Recomenda-se revisão")
+        else:
+            st.error(f"🎯 Confiança: {confidence_level} ({confidence_percent}%) - Revisão urgente recomendada")
 
         # Banner HTML customizado com a cor da classificação
         # unsafe_allow_html=True: necessário para renderizar HTML cru no Streamlit
@@ -569,30 +458,54 @@ if st.session_state.analysis_ran:
 
         st.markdown("---")
 
-        # --------------------------------------------------------
         # HUMAN-IN-THE-LOOP: feedback do especialista médico
-        # --------------------------------------------------------
         # Permite que o usuário valide ou corrija a classificação.
-        # Os feedbacks ficam em st.session_state.feedback_log e são
-        # exibidos na aba de Monitoramento para calcular acurácia percebida.
+        # Os feedbacks ficam em st.session_state.feedback_log e são e exibidos na aba de Monitoramento para calcular acurácia percebida.
         st.subheader("Validação Humana")
         fc1, fc2 = st.columns(2)
         with fc1:
             if st.button("✅ Classificação correta"):
-                st.session_state.feedback_log.append(
-                    {"classification": classification, "mse": mse, "correct": True}
-                )
-                st.success("Feedback registrado.")
+                with st.status("Registrando feedback...", expanded=True) as status:
+                    st.write("✅ Feedback positivo registrado")
+                    st.session_state.feedback_log.append(
+                        {"classification": classification, "mse": mse, "correct": True, "timestamp": time.time()}
+                    )
+                    status.update(label="Feedback registrado com sucesso!", state="complete")
         with fc2:
             if st.button("❌ Classificação incorreta"):
-                st.session_state.feedback_log.append(
-                    {"classification": classification, "mse": mse, "correct": False}
-                )
-                st.error("Feedback registrado.")
+                with st.status("Registrando feedback...", expanded=True) as status:
+                    st.write("❌ Feedback negativo registrado")
+                    st.session_state.feedback_log.append(
+                        {"classification": classification, "mse": mse, "correct": False, "timestamp": time.time()}
+                    )
+                    status.update(label="Feedback registrado com sucesso!", state="complete")
 
-    # ==========================================================
+    # TAB 2 — GERAÇÃO DE IMAGENS
+    with tab_geracao:
+        st.subheader("🎨 Geração de Novas Imagens de Raio-X")
+        st.markdown("Gere imagens sintéticas de raio-X amostrando do espaço latente do VAE.")
+
+        col_gen1, col_gen2 = st.columns([1, 3])
+        with col_gen1:
+            num_images = st.slider("Número de imagens", 1, 10, 4, key="num_images")
+            if st.button("🔄 Gerar Imagens"):
+                with st.spinner("Gerando imagens sintéticas..."):
+                    st.session_state.generated_images = generate_new_images(vae, num_images)
+                    st.session_state.num_generated = num_images
+                st.success(f"{num_images} imagens geradas com sucesso!")
+
+        with col_gen2:
+            if st.session_state.generated_images is not None:
+                st.markdown(f"**{st.session_state.num_generated} imagens geradas:**")
+                cols = st.columns(min(4, st.session_state.num_generated))
+                for i in range(st.session_state.num_generated):
+                    with cols[i % 4]:
+                        st.image(st.session_state.generated_images[i].squeeze(), 
+                                caption=f"Imagem {i+1}", width=100, clamp=True)
+            else:
+                st.info("Clique em 'Gerar Imagens' para criar novas imagens sintéticas.")
+
     # TAB 3 — DADOS & HISTÓRICO
-    # ==========================================================
     with tab_dados:
         st.subheader("Histórico de Análises")
         st.caption(
@@ -610,60 +523,110 @@ if st.session_state.analysis_ran:
                     # ProgressColumn: renderiza valores numéricos como barra de progresso
                     "Confiança (%)": st.column_config.ProgressColumn(
                         "Confiança",
-                        help="Confiança estimada pelo modelo",
+                        help="Confiança estimada pelo modelo (barra visual)",
                         min_value=0,
                         max_value=100,
                         format="%d%%",
                     ),
                     # NumberColumn: formata com casas decimais específicas
                     "Erro MSE": st.column_config.NumberColumn("Erro MSE", format="%.6f"),
+                    # TextColumn para classificação
+                    "Classificação": st.column_config.TextColumn("Classificação"),
+                    # DateTime column
+                    "Data/Hora": st.column_config.DatetimeColumn("Data/Hora", format="DD/MM/YYYY HH:mm:ss"),
                 },
             )
 
-            st.markdown("#### Estatísticas descritivas")
-            st.caption("Antes de confiar no gráfico, inspecione o dado bruto.")
-            # .describe() gera count, mean, std, min, quartis, max
+            st.markdown("#### Estatísticas Agregadas")
+            st.caption("Métricas calculadas sobre todo o histórico de análises.")
+            stats_df = st.session_state.history_df[["Erro MSE", "Confiança (%)"]].describe()
             st.dataframe(
-                st.session_state.history_df[["Erro MSE", "Confiança (%)"]].describe().round(6),
+                stats_df.round(6),
                 use_container_width=True,
             )
 
-    # ==========================================================
+            # Gráfico de distribuição de confiança
+            st.markdown("#### Distribuição de Confiança")
+            fig = px.histogram(
+                st.session_state.history_df, 
+                x="Confiança (%)", 
+                nbins=10,
+                title="Distribuição das Confianças Estimadas"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
     # TAB 4 — MONITORAMENTO
-    # ==========================================================
     with tab_monitor:
         st.subheader("Monitoramento do Sistema")
 
+        # Métricas agregadas
+        total_analyses = len(st.session_state.history)
         total_fb = len(st.session_state.feedback_log)
+
+        if total_analyses > 0:
+            avg_mse = np.mean([h["mse"] for h in st.session_state.history])
+            avg_confidence = np.mean([h["confidence"] for h in st.session_state.history])
+            min_confidence = min([h["confidence"] for h in st.session_state.history])
+            max_mse = max([h["mse"] for h in st.session_state.history])
+
+            mon1, mon2, mon3, mon4 = st.columns(4)
+            mon1.metric("Total de Análises", total_analyses)
+            mon2.metric("MSE Médio", f"{avg_mse:.6f}")
+            mon3.metric("Confiança Média", f"{avg_confidence:.1f}%")
+            mon4.metric("Feedbacks Recebidos", total_fb)
+
+            # Alerta de degradação baseado em baixa confiança média
+            if avg_confidence < 50:
+                st.error("🚨 Possível degradação do modelo detectada: confiança média baixa.")
+            elif min_confidence < 20:
+                st.warning("⚠️ Algumas análises com confiança muito baixa - revisar thresholds.")
+
         if total_fb > 0:
             # Conta feedbacks marcados como corretos pelo usuário
             correct = sum(1 for f in st.session_state.feedback_log if f["correct"])
             accuracy = correct / total_fb  # proporção de acertos
 
-            mon1, mon2, mon3 = st.columns(3)
-            mon1.metric("Feedbacks recebidos", total_fb)
-            mon2.metric("Acertos validados", correct)
-            mon3.metric("Acurácia percebida", f"{int(accuracy * 100)}%")
+            st.markdown("#### Acurácia Percebida (Feedback Humano)")
+            acc1, acc2, acc3 = st.columns(3)
+            acc1.metric("Feedbacks Positivos", correct)
+            acc2.metric("Feedbacks Negativos", total_fb - correct)
+            acc3.metric("Acurácia", f"{accuracy:.1%}")
 
-            # Alerta de possível degradação se acurácia < 70%
+            # Alerta de degradação se acurácia < 70%
             if accuracy < 0.7:
-                st.warning("⚠️ Possível degradação do modelo detectada.")
-        else:
-            st.info("Ainda não há feedback suficiente para monitoramento.")
+                st.error("🚨 Possível degradação do modelo: baixa acurácia nos feedbacks.")
 
         st.markdown("---")
 
-        # Gráfico nativo: evolução do MSE ao longo das execuções
-        # st.line_chart: gráfico de linha nativo do Streamlit, rápido para prototipação
+        # Gráfico de evolução da confiança
         if len(st.session_state.history) > 1:
-            st.markdown("#### Evolução do Erro de Reconstrução (MSE)")
-            st.caption("Gráfico nativo do Streamlit (`st.line_chart`): ideal para prototipação rápida de séries temporais.")
-            mse_series = pd.DataFrame(
-                {"Erro MSE": [h["mse"] for h in st.session_state.history]},
-                index=range(1, len(st.session_state.history) + 1),
+            st.markdown("#### Evolução da Confiança ao Longo das Análises")
+            confidence_df = pd.DataFrame({
+                "Execução": range(1, len(st.session_state.history) + 1),
+                "Confiança (%)": [h["confidence"] for h in st.session_state.history]
+            })
+            st.line_chart(confidence_df.set_index("Execução"))
+
+        # Histórico de Feedbacks Humanos (separado do histórico operacional)
+        if total_fb > 0:
+            st.markdown("#### Histórico de Feedbacks Humanos")
+            feedback_df = pd.DataFrame(st.session_state.feedback_log)
+            feedback_df["Execução"] = range(1, len(feedback_df) + 1)
+            feedback_df["Correto"] = feedback_df["correct"].map({True: "✅ Sim", False: "❌ Não"})
+            feedback_df["Timestamp"] = pd.to_datetime(feedback_df["timestamp"], unit='s').dt.strftime("%Y-%m-%d %H:%M:%S")
+            feedback_df = feedback_df[["Execução", "classification", "mse", "Correto", "Timestamp"]]
+
+            st.dataframe(
+                feedback_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "mse": st.column_config.NumberColumn("Erro MSE", format="%.6f"),
+                    "classification": st.column_config.TextColumn("Classificação"),
+                    "Correto": st.column_config.TextColumn("Feedback Correto"),
+                    "Timestamp": st.column_config.DatetimeColumn("Data/Hora", format="DD/MM/YYYY HH:mm:ss"),
+                }
             )
-            mse_series.index.name = "Execução"
-            st.line_chart(mse_series)
 
  
         # Filtro interativo com aplicação explícita (evita reruns a cada ajuste do slider)
@@ -701,9 +664,7 @@ if st.session_state.analysis_ran:
                     },
                 )
 
-    # ==========================================================
     # TAB 5 — SOBRE O MODELO
-    # ==========================================================
     with tab_sobre:
         st.header("ℹ️ Sobre o Modelo VAE")
         # Documentação inline da arquitetura e lógica do sistema
@@ -748,9 +709,7 @@ else:
     st.info("Configure os parâmetros na barra lateral e clique em **🔍 Executar Triagem**.")
 
 
-# ==========================================================
 # FOOTER
-# ==========================================================
 # st.markdown("---") gera uma linha horizontal <hr> no HTML
 st.markdown("---")
 st.caption(
