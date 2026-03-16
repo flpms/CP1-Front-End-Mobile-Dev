@@ -2,8 +2,8 @@ tensorflow==2.16.2
 numpy
 pandas
 plotly
-altair
+altair>=5.0.0
 pillow
-streamlit
+streamlit>=1.28.0
 scikit-image
 python-dotenv
