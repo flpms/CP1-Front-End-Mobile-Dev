@@ -1,7 +1,8 @@
 tensorflow
 numpy
-matplotlib
-medmnist
+pandas
+plotly
+altair
 pillow
 streamlit
 scikit-image
