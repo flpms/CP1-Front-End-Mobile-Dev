@@ -2,6 +2,14 @@
 
 Aplicação Streamlit que utiliza um Variational Autoencoder (VAE) treinado para detectar pneumonia em radiografias de tórax.
 
+## Equipe
+
+| Nome | RM |
+|---|---|
+| Carlos Bucker | 555812 |
+| Filipe Melo da Silva | 564571 |
+| Luca Schmidt | 560255 |
+
 ## Pré-requisitos
 
 - Python 3.9+
